@@ -1,0 +1,175 @@
+diff -r 1f045cadf71f Makefile
+--- a/Makefile	Sat Dec 19 12:38:49 2009 +0100
++++ b/Makefile	Thu Jan 14 13:22:57 2010 +0100
+@@ -7,16 +7,17 @@
+ HEADERS := $(wildcard *.h)
+ OBJECTS := $(patsubst %.c,%.o,$(SOURCES))
+ 
+-MCU := atmega168
++MCU := atmega32u4
+ MCU_AVRDUDE := m168
+-MCU_FREQ := 16000000UL
++MCU_FREQ := 8000000UL
++BOARD := TEENSY2
+ 
+ CC := avr-gcc
+ OBJCOPY := avr-objcopy
+-SIZE := avr-size -A
++SIZE = avr-size -A --format=avr --mcu=$(MCU)
+ DOXYGEN := doxygen
+ 
+-CFLAGS := -Wall -pedantic -mmcu=$(MCU) -std=c99 -g -Os -DF_CPU=$(MCU_FREQ)
++CFLAGS := -Wall -pedantic -mmcu=$(MCU) -std=c99 -g -Os -DF_CPU=$(MCU_FREQ) -DBOARD=$(BOARD)
+ 
+ all: $(HEX)
+ 
+@@ -25,7 +26,8 @@
+ 	rm -rf doc/html
+ 
+ flash: $(HEX)
+-	avrdude -y -c avr910 -p $(MCU_AVRDUDE) -U flash:w:$(HEX)
++	#avrdude -y -c avr910 -p $(MCU_AVRDUDE) -U flash:w:$(HEX)
++	avrdude -p $(MCU_AVRDUDE) -P usb -c avrispmkII -V -U flash:w:$(HEX)
+ 
+ $(HEX): $(OUT)
+ 	$(OBJCOPY) -R .eeprom -O ihex $< $@
+diff -r 1f045cadf71f fat_config.h
+--- a/fat_config.h	Sat Dec 19 12:38:49 2009 +0100
++++ b/fat_config.h	Thu Jan 14 13:22:57 2010 +0100
+@@ -51,7 +51,7 @@
+  *
+  * Set to 1 to enable FAT32 support.
+  */
+-#define FAT_FAT32_SUPPORT SD_RAW_SDHC
++#define FAT_FAT32_SUPPORT 1 //SD_RAW_SDHC
+ 
+ /**
+  * \ingroup fat_config
+diff -r 1f045cadf71f main.c
+--- a/main.c	Sat Dec 19 12:38:49 2009 +0100
++++ b/main.c	Thu Jan 14 13:22:57 2010 +0100
+@@ -9,6 +9,7 @@
+ 
+ #include <string.h>
+ #include <avr/pgmspace.h>
++#include <avr/power.h>
+ #include <avr/sleep.h>
+ #include "fat.h"
+ #include "fat_config.h"
+@@ -212,6 +213,11 @@
+ 
+ int main()
+ {
++#if (BOARD == TEENSY2)
++    /* Set the clock prescaler */
++    clock_prescale_set(clock_div_1);
++#endif
++    
+     /* we will just use ordinary idle mode */
+     set_sleep_mode(SLEEP_MODE_IDLE);
+ 
+@@ -368,8 +374,9 @@
+ 
+                 /* print file contents */
+                 uint8_t buffer[8];
++                uint8_t size;
+                 uint32_t offset = 0;
+-                while(fat_read_file(fd, buffer, sizeof(buffer)) > 0)
++                while((size = fat_read_file(fd, buffer, sizeof(buffer))) > 0)
+                 {
+                     uart_putdw_hex(offset);
+                     uart_putc(':');
+@@ -378,6 +385,18 @@
+                         uart_putc(' ');
+                         uart_putc_hex(buffer[i]);
+                     }
++                    
++                    uart_putc(' ');
++                    
++                    /* Display printable characters */
++                    for(uint8_t i = 0; i < size; ++i)
++                    {
++                        if ((buffer[i] >= 32) && (buffer[i] <= 126))
++                            uart_putc(buffer[i]);
++                        else
++                            uart_putc('.');
++                    }
++                    
+                     uart_putc('\n');
+                     offset += 8;
+                 }
+diff -r 1f045cadf71f sd_raw_config.h
+--- a/sd_raw_config.h	Sat Dec 19 12:38:49 2009 +0100
++++ b/sd_raw_config.h	Thu Jan 14 13:22:57 2010 +0100
+@@ -103,15 +103,29 @@
+ 
+     #define select_card() PORTB &= ~(1 << PB0)
+     #define unselect_card() PORTB |= (1 << PB0)
++#elif defined(__AVR_ATmega32U4__)
++    #define configure_pin_mosi() DDRB |= (1 << DDB2)
++    #define configure_pin_sck() DDRB |= (1 << DDB1)
++    #define configure_pin_ss() DDRB |= (1 << DDB0)
++    #define configure_pin_miso() DDRB &= ~(1 << DDB3)
++
++    #define select_card() PORTB &= ~(1 << PORTB0)
++    #define unselect_card() PORTB |= (1 << PORTB0)
+ #else
+     #error "no sd/mmc pin mapping available!"
+ #endif
+ 
+-#define configure_pin_available() DDRC &= ~(1 << DDC4)
+-#define configure_pin_locked() DDRC &= ~(1 << DDC5)
++// From Sparkfun OpenLog
++//My 2 hour pitfall: If not using card detect or write protect, assign these values:
++//#define configure_pin_available() DDRC &= ~(1 << DDC4)
++//#define configure_pin_locked() DDRC &= ~(1 << DDC5)
++#define configure_pin_available() //Do nothing
++#define configure_pin_locked() //Do nothing
+ 
+-#define get_pin_available() ((PINC >> PC4) & 0x01)
+-#define get_pin_locked() ((PINC >> PC5) & 0x01)
++//#define get_pin_available() ((PINC >> PC4) & 0x01)
++//#define get_pin_locked() ((PINC >> PC5) & 0x01)
++#define get_pin_available() (0) //Emulate that the card is present
++#define get_pin_locked() (1) //Emulate that the card is always unlocked
+ 
+ #if SD_RAW_SDHC
+     typedef uint64_t offset_t;
+diff -r 1f045cadf71f uart.c
+--- a/uart.c	Sat Dec 19 12:38:49 2009 +0100
++++ b/uart.c	Thu Jan 14 13:22:57 2010 +0100
+@@ -36,6 +36,25 @@
+ #define UCSZ0 UCSZ00
+ #define UCSZ1 UCSZ01
+ #define UCSRC_SELECT 0
++#elif defined(UDR1)
++#define UBRRH UBRR1H
++#define UBRRL UBRR1L
++#define UDR UDR1
++
++#define UCSRA UCSR1A
++#define UDRE UDRE1
++#define RXC RXC1
++
++#define UCSRB UCSR1B
++#define RXEN RXEN1
++#define TXEN TXEN1
++#define RXCIE RXCIE1
++
++#define UCSRC UCSR1C
++#define URSEL 
++#define UCSZ0 UCSZ10
++#define UCSZ1 UCSZ11
++#define UCSRC_SELECT 0
+ #else
+ #define UCSRC_SELECT (1 << URSEL)
+ #endif
+@@ -47,6 +66,8 @@
+ #define USART_RXC_vect UART_RX_vect
+ #elif defined(USART0_RX_vect)
+ #define USART_RXC_vect USART0_RX_vect
++#elif defined(USART1_RX_vect)
++#define USART_RXC_vect USART1_RX_vect
+ #elif defined(USART_RX_vect)
+ #define USART_RXC_vect USART_RX_vect
+ #elif defined(USART0_RXC_vect)

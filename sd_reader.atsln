@@ -1,0 +1,20 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Atmel Studio Solution File, Format Version 11.00
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "sd_reader", "sd_reader\sd_reader.cproj", "{A07331E7-31FE-4792-AD69-82F05788C46A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|AVR = Debug|AVR
+		Release|AVR = Release|AVR
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A07331E7-31FE-4792-AD69-82F05788C46A}.Debug|AVR.ActiveCfg = Debug|AVR
+		{A07331E7-31FE-4792-AD69-82F05788C46A}.Debug|AVR.Build.0 = Debug|AVR
+		{A07331E7-31FE-4792-AD69-82F05788C46A}.Release|AVR.ActiveCfg = Release|AVR
+		{A07331E7-31FE-4792-AD69-82F05788C46A}.Release|AVR.Build.0 = Release|AVR
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
