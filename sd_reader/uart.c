@@ -79,7 +79,7 @@
 #endif
 #endif
 
-#define BAUD 38400UL
+#define BAUD 9600UL
 #define UBRRVAL (F_CPU/(BAUD*16)-1)
 #define USE_SLEEP 1
 
@@ -91,11 +91,8 @@ void uart_init()
     /* set frame format: 8 bit, no parity, 1 bit */
     UCSRC = UCSRC_SELECT | (1 << UCSZ1) | (1 << UCSZ0);
     /* enable serial receiver and transmitter */
-#if !USE_SLEEP
-    UCSRB = (1 << RXEN) | (1 << TXEN);
-#else
+
     UCSRB = (1 << RXEN) | (1 << TXEN) | (1 << RXCIE);
-#endif
 }
 
 void uart_putc(uint8_t c)
@@ -215,5 +212,5 @@ uint8_t uart_getc()
     return b;
 }
 
-EMPTY_INTERRUPT(USART_RXC_vect)
+//EMPTY_INTERRUPT(USART_RXC_vect)
 
