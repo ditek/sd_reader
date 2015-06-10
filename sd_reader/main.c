@@ -6,6 +6,7 @@
 #include <avr/wdt.h>
 #include <util/delay.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include "fat.h"
 #include "fat_config.h"
 #include "partition.h"
@@ -210,9 +211,10 @@ do                          \
 	}                       \
 } while(0)
 
-char buffer[24];
+const char* CRLF = "\r\n";
+char buffer[20];
 static RingBuffer_t Buffer_Rx;
-static uint8_t      Buffer_Rx_Data[128];
+static uint8_t      Buffer_Rx_Data[256];
 
 void wdt_init(void) __attribute__((naked)) __attribute__((section(".init3")));
 
@@ -244,6 +246,16 @@ void wdt_init(void)
 	return;
 }
 
+
+int usart_putchar_printf(char var, FILE *stream) {
+	uart_putc(var);
+	return 0;
+}
+
+volatile int max;
+volatile int x;
+static FILE mystdout = FDEV_SETUP_STREAM(usart_putchar_printf, NULL, _FDEV_SETUP_WRITE);
+
 int main()
 {
     /* Set the clock prescaler */
@@ -256,7 +268,7 @@ int main()
 
     /* setup uart */
     uart_init();
-
+	stdout = &mystdout;
 
     while(1)
     {
@@ -326,6 +338,9 @@ int main()
         {
 			char success = 0;
 			char filename_available = 0;
+			volatile uint8_t  errors = 0;
+			RingBuffer_Flush(&Buffer_Rx);
+
 			uart_putc('t');
 			
 			if(wait_for_answer() == 's')
@@ -359,21 +374,40 @@ int main()
 						struct fat_file_struct* fd = open_file_in_dir(fs, dd, filename);
 						if(fd)
 						{
-							uint8_t data_len;
-							int i;
-							for(i=0; i<512; i++)
-							{							
-								data_len = read_line(buffer, sizeof(buffer));
-								if(!data_len)
-									break;
-
-								/* write text to file */
-								if(fat_write_file(fd, (uint8_t*) buffer, data_len) != data_len)
-									break;
+							uart_putc('m');
+							if(wait_for_answer() == 'a')
+							{
+								uint8_t data_len;
+								volatile int i;
+								//max=0;
+								for(i=0; i<512; i++)
+								{	x=i;
+									//printf("L%d\n", i);
+									//uart_putc(i/100 + 48);						
+									data_len = read_line(buffer, sizeof(buffer)-3);
+									if(!data_len)
+									{
+										errors++;
+										continue;
+									}
+									//buffer[16] = 13;
+									//buffer[17] = 10;
+									//buffer[18] = 0;
+									//buffer[19] = 0;
+									strcat(buffer, CRLF);
+									data_len += 2;
+									/* write text to file */
+									if(fat_write_file(fd, (uint8_t*) buffer, data_len) != data_len)
+									{
+										break;
+									}
+									
+									//fat_write_file(fd, CRLF, 2);
+								}
+								fat_close_file(fd);
+								if(i == 512)
+									success = 1;
 							}
-							fat_close_file(fd);
-							if(i == 512)
-								success = 1;
 						}
 					}
 				}
@@ -382,7 +416,6 @@ int main()
             // print prompt 
             //uart_putc('>');
             //uart_putc(' ');
-			_delay_ms(10000);
 
             //// read command 
             //char* command = buffer;
@@ -394,14 +427,20 @@ int main()
 			//if(!result)
 				//break;        
 			}
+		if(success)
+			uart_puts("Success\n");
+		//else
+			//uart_puts("Errors\n");
 
+		_delay_ms(5000);
+		_delay_ms(100);
+		break;
+		}
         /* close file system */
         fat_close(fs);
 
         /* close partition */
         partition_close(partition);
-		_delay_ms(100);
-		}
 	}
     return 0;
 }
@@ -409,13 +448,11 @@ int main()
 // Waits 10ms for an answer from slave
 char wait_for_answer()
 {
-	for(char i=0; i<10; i++)
+	for(char i=0; i<100; i++)
 	{
-		_delay_ms(1);
+		_delay_ms(100);
 		if(!RingBuffer_IsEmpty(&Buffer_Rx))
-		return RingBuffer_Remove(&Buffer_Rx);
-		else
-		break;
+			return RingBuffer_Remove(&Buffer_Rx);
 	}
 	return 0;
 }
@@ -425,14 +462,6 @@ char make_file(struct fat_fs_struct* fs, struct fat_dir_struct* dd,char* filenam
 	struct fat_dir_entry_struct file_entry;
 	if(!fat_create_file(dd, filename, &file_entry))
 		return 0;
-	return 1;
-}
-
-char write_to_file(struct fat_fs_struct* fs, struct fat_dir_struct* dd,char* filename)
-{
-	struct fat_dir_entry_struct file_entry;
-	if(!fat_create_file(dd, filename, &file_entry))
-	return 0;
 	return 1;
 }
 
@@ -756,24 +785,22 @@ uint8_t read_line(char* buffer, uint8_t buffer_length)
     uint8_t read_length = 0;
     while(read_length < buffer_length - 1)
     {
-        uint8_t c = uart_getc();
+		uint8_t c;
+		uint16_t i=0; 
+		// If nothing is received for a while report failure
+		while(RingBuffer_IsEmpty(&Buffer_Rx))
+			if(i++>1000)
+				return 0;
+		c = RingBuffer_Remove(&Buffer_Rx);
 
-        if(c == 0x08 || c == 0x7f)
-        {
-            if(read_length < 1)
-                continue;
-
-            --read_length;
-            buffer[read_length] = '\0';
-
-            uart_putc(0x08);
-            uart_putc(' ');
-            uart_putc(0x08);
-
-            continue;
-        }
-
-        uart_putc(c);
+        //if(c == 0x08 || c == 0x7f)
+        //{
+            //if(read_length < 1)
+                //continue;
+            //--read_length;
+            //buffer[read_length] = '\0';
+            //continue;
+        //}
 
         if(c == '\n')
         {
@@ -870,4 +897,8 @@ ISR(USART1_RX_vect, ISR_BLOCK)
 
 	if ( !RingBuffer_IsFull(&Buffer_Rx))
 	  RingBuffer_Insert(&Buffer_Rx, ReceivedByte);
+	//else if ( RingBuffer_IsFull(&Buffer_Rx))
+	  //RingBuffer_Insert(&Buffer_Rx, ReceivedByte);
+	//if(max<Buffer_Rx.Count)
+		//max = Buffer_Rx.Count;
 }

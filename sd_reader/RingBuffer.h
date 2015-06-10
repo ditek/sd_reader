@@ -307,7 +307,7 @@
 		void RingBuffer_Flush(RingBuffer_t* const Buffer)
 		{
 			Buffer->In = Buffer->Out = Buffer->Start;
-			Buffer->Size = 0;
+			Buffer->Count = 0;
 		}
 		
 	/* Disable C linkage for C++ Compilers: */
